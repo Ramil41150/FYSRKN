@@ -1,42 +1,70 @@
-name: Build Android APK
+name: Build and Release
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag for the release'
+        required: true
+        type: string
+      release_name:
+        description: 'Release Name'
+        required: true
+        type: string
+      release_notes:
+        description: 'Release Description'
+        required: true
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    
-    - name: Set up JDK 21
+    - uses: actions/checkout@v4
+    - name: Set up JDK
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
         cache: gradle
-    
+
+    - name: Setup Git submodules
+      run: git submodule update --init --recursive
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
-    
+
     - name: Set up Android SDK
       uses: android-actions/setup-android@v2
-      with:
-        api-level: 34
-        build-tools-version: '34.0.0'
-    
+
     - name: Build APK
       run: ./gradlew assembleRelease
-    
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
+
+    - name: Decode Keystore
+      run: |
+        echo "${{ secrets.KEYSTORE }}" | base64 --decode > keystore.jks
+
+    - name: Sign the APK
+      run: |
+        $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner sign \
+          --ks keystore.jks \
+          --ks-pass "pass:${{ secrets.KEY_STORE_PASSWORD }}" \
+          --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
+          --out app/build/outputs/apk/release/app-release.apk \
+          app/build/outputs/apk/release/app-release-unsigned.apk
+
+    - name: Verify APK signature
+      run: |
+        $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner verify \
+          app/build/outputs/apk/release/app-release.apk
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        name: app-apk
-        path: app/build/outputs/apk/release/app-release.apk
+        tag_name: ${{ github.event.inputs.tag }}
+        name: ${{ github.event.inputs.release_name }}
+        body: ${{ github.event.inputs.release_notes }}
+        files: |
+          app/build/outputs/apk/release/app-release.apk
+``
