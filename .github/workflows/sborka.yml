@@ -1,4 +1,4 @@
-name: Build and Release
+name: Build and Release APK
 
 on:
   workflow_dispatch:
@@ -11,63 +11,64 @@ on:
         description: 'Release Name'
         required: true
         type: string
-      release_notes:
-        description: 'Release Description'
-        required: true
-        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
     - uses: actions/checkout@v4
+    
     - name: Set up JDK
       uses: actions/setup-java@v4
       with:
-        java-version: '21'
+        java-version: '17'
         distribution: 'temurin'
-        cache: gradle
-
-    - name: Setup Git submodules
-      run: git submodule update --init --recursive
-
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-
-    - name: Set up Android SDK
+    
+    - name: Setup Android
       uses: android-actions/setup-android@v2
-
-    - name: Create debug keystore
+    
+    - name: Run Gradle build
       run: |
-        keytool -genkeypair -v \
-          -keystore debug.keystore \
-          -alias androiddebugkey \
-          -keyalg RSA \
-          -keysize 2048 \
-          -validity 10000 \
-          -storepass android \
-          -keypass android \
-          -dname "CN=Android Debug,O=Android,C=US"
-
-    - name: Create keystore properties
+        chmod +x gradlew
+        ./gradlew tasks --all | grep assemble || true
+        ./gradlew assembleDebug
+    
+    - name: Find APK files
       run: |
-        cat > keystore.properties << EOF
-        storePassword=android
-        keyPassword=android
-        keyAlias=androiddebugkey
-        storeFile=debug.keystore
-        EOF
-
-    - name: Build release APK with debug signing
-      run: ./gradlew assembleRelease
-
-    - name: Create GitHub Release
+        echo "### Ищем APK файлы ###"
+        find . -type f -name "*.apk" | while read file; do
+          echo "Найден: $file"
+          ls -lh "$file"
+        done
+        
+        # Создаем список APK для загрузки
+        APK_FILES=$(find . -type f -name "*.apk")
+        if [ -n "$APK_FILES" ]; then
+          echo "APK_FILES<<EOF" >> $GITHUB_ENV
+          echo "$APK_FILES" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+        else
+          echo "APK_FILES=" >> $GITHUB_ENV
+        fi
+    
+    - name: Create Release with APK
+      if: env.APK_FILES != ''
       uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ github.event.inputs.tag }}
         name: ${{ github.event.inputs.release_name }}
-        body: ${{ github.event.inputs.release_notes }}
-        files: |
-          app/build/outputs/apk/release/app-release.apk
+        body: "Автоматически собранная сборка"
+        files: ${{ env.APK_FILES }}
+    
+    - name: Show error if no APK
+      if: env.APK_FILES == ''
+      run: |
+        echo "❌ APK файлы не найдены!"
+        echo "Проверьте:"
+        echo "1. Корректность build.gradle"
+        echo "2. Наличие модуля 'app'"
+        echo "3. Логи сборки выше"
+        exit 1
