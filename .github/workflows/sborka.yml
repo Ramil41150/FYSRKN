@@ -37,26 +37,30 @@ jobs:
     - name: Set up Android SDK
       uses: android-actions/setup-android@v2
 
-    - name: Build APK
+    - name: Create debug keystore
+      run: |
+        keytool -genkeypair -v \
+          -keystore debug.keystore \
+          -alias androiddebugkey \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -storepass android \
+          -keypass android \
+          -dname "CN=Android Debug,O=Android,C=US"
+
+    - name: Create keystore properties
+      run: |
+        cat > keystore.properties << EOF
+        storePassword=android
+        keyPassword=android
+        keyAlias=androiddebugkey
+        storeFile=debug.keystore
+        EOF
+
+    - name: Build release APK with debug signing
       run: ./gradlew assembleRelease
 
-    - name: Decode Keystore
-      run: |
-        echo "${{ secrets.KEYSTORE }}" | base64 --decode > keystore.jks
-
-    - name: Sign the APK
-      run: |
-        $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner sign \
-          --ks keystore.jks \
-          --ks-pass "pass:${{ secrets.KEY_STORE_PASSWORD }}" \
-          --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-          --out app/build/outputs/apk/release/app-release.apk \
-          app/build/outputs/apk/release/app-release-unsigned.apk
-
-    - name: Verify APK signature
-      run: |
-        $ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)/apksigner verify \
-          app/build/outputs/apk/release/app-release.apk
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       env:
