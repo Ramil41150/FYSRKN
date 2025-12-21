@@ -50,11 +50,34 @@ class ByeDpiVpnService : LifecycleVpnService() {
         )
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        tunFd?.close()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         return when (val action = intent?.action) {
             START_ACTION -> {
-                lifecycleScope.launch { start() }
+                lifecycleScope.launch {
+                    start()
+                }
+                START_STICKY
+            }
+
+            STOP_ACTION -> {
+                lifecycleScope.launch {
+                    stop()
+                }
+                START_NOT_STICKY
+            }
+
+            RESUME_ACTION -> {
+                lifecycleScope.launch {
+                    if (prepare(this@ByeDpiVpnService) == null) {
+                        start()
+                    }
+                }
                 START_STICKY
             }
 
@@ -63,11 +86,6 @@ class ByeDpiVpnService : LifecycleVpnService() {
                     stop()
                     createNotificationPause()
                 }
-                START_NOT_STICKY
-            }
-
-            STOP_ACTION -> {
-                lifecycleScope.launch { stop() }
                 START_NOT_STICKY
             }
 
@@ -259,9 +277,10 @@ class ByeDpiVpnService : LifecycleVpnService() {
 
         try {
             tunFd?.close()
-            tunFd = null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to close tunFd", e)
+        } finally {
+            tunFd = null
         }
 
         Log.i(TAG, "Tun2socks stopped")
@@ -308,7 +327,7 @@ class ByeDpiVpnService : LifecycleVpnService() {
             ByeDpiVpnService::class.java,
         )
 
-    private fun createNotificationPause(){
+    private fun createNotificationPause() {
         val notification = createPauseNotification(
             this,
             NOTIFICATION_CHANNEL_ID,
